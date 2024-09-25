@@ -1,7 +1,7 @@
-# Homemade-GPT (Generative Pre-Trained Transformer) implementation in native Python
+# Homemade-GPT (Generative Pre-Trained Transformer)
 
 
-This repository contains a native Python implementation of the Decoder portion of the Tranformer architecture introduced in the seminal paper - [Attention is all you need](https://arxiv.org/abs/1706.03762).
+This repository contains a Python implementation of the Decoder portion of the Tranformer architecture introduced in the seminal paper - [Attention is all you need](https://arxiv.org/abs/1706.03762).
 Figure 1 shows the complete Transformer architecture with the Encoder block on the left and Decoder block on the right.
 ![img](./assets/transformer_architecture.png)
 
