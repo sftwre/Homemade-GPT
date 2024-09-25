@@ -5,7 +5,7 @@ from functools import partial
 from data import InstructionDataset, custom_collate_fn, format_input
 from torch.utils.data import DataLoader
 from transformer import GPTModel
-from utils import load_weights_into_gpt, download_and_load_gpt2, load_dataset
+from utils import load_weights_into_gpt, download_and_load_gpt2, load_dataset, text_to_token_ids, token_ids_to_text
 
 
 
@@ -62,16 +62,6 @@ def generate_and_print_sample(model, tokenizer, device, start_context):
         decoded_text = token_ids_to_text(token_ids, tokenizer)
         print(decoded_text.replace("\n", " "))  # Compact print format
     model.train()
-    
-def text_to_token_ids(text, tokenizer):
-    encoded = tokenizer.encode(text, allowed_special={'<|endoftext|>'})
-    encoded_tensor = torch.tensor(encoded).unsqueeze(0) 
-    # .unsqueeze(0) adds the batch dimension
-    return encoded_tensor
- 
-def token_ids_to_text(token_ids, tokenizer):
-    flat = token_ids.squeeze(0) # Remove batch dimension
-    return tokenizer.decode(flat.tolist())
 
 def generate_text_simple(model, idx, max_new_tokens, context_size, temperature=1):
 
