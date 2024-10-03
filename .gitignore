@@ -3,3 +3,4 @@
 __pycache__/
 /gpt2
 /mlruns
+/mlartifacts
