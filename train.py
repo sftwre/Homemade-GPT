@@ -14,21 +14,23 @@ from utils import (
     text_to_token_ids,
     token_ids_to_text,
 )
+from typing import List
 
 
 def train(
     model,
-    train_loader,
-    val_loader,
-    optimizer,
-    device,
-    num_epochs,
-    eval_freq,
-    eval_iter,
-    start_context,
+    train_loader: DataLoader,
+    val_loader: DataLoader,
+    optimizer: torch.optim.Optimizer,
+    device: str,
+    num_epochs: int,
+    eval_freq: int,
+    eval_iter: int,
+    start_context: str,
     tokenizer,
-):
-    train_losses, val_losses, track_tokens_seen = {}, {}, []
+) -> (List[float], List[float], List[float]):
+
+    train_losses, val_losses, track_tokens_seen = [], [], []
     tokens_seen, global_step = 0, -1
 
     for epoch in range(num_epochs):
@@ -45,9 +47,14 @@ def train(
                 train_loss, val_loss = evaluate(
                     model, train_loader, val_loader, device, eval_iter
                 )
-                train_losses[f"Iteration_{global_step}_Epoch_{epoch}"] = train_loss
-                val_losses[f"Iteration_{global_step}_Epoch_{epoch}"] = val_loss
+                train_losses.append(train_loss)
+                val_losses.append(val_loss)
                 track_tokens_seen.append(tokens_seen)
+
+                # mlflow logging
+                mlflow.log_metric("Train_loss", train_loss, global_step)
+                mlflow.log_metric("Val_loss", val_loss, global_step)
+
                 print(
                     f"Ep {epoch+1} (Step {global_step:06d}): "
                     f"Train loss {train_loss:.3f}, "
@@ -237,29 +244,11 @@ if __name__ == "__main__":
     mlflow.set_tracking_uri("http://127.0.0.1:8080")
     mlflow.set_experiment("Instruction fine-tuning")
 
-    with mlflow.start_run():
+    mlflow.log_params(exp_params)
+    mlflow.set_tag("Training info", "Alpaca instruction dataset (small)")
 
-        mlflow.log_params(exp_params)
-        mlflow.log_metrics(train_losses)
-        mlflow.log_metrics(val_losses)
-        mlflow.set_tag("Training info", "Alpaca instruction dataset (small)")
-
-        input_scheme = train_dataset[0].numpy()
-        output_scheme = (
-            generate_tokens(
-                model=model,
-                idx=torch.Tensor(input_scheme).to(device),
-                max_new_tokens=50,
-                context_size=BASE_CONFIG["ctx_len"],
-            )
-            .to("cpu")
-            .numpy()
-        )
-        sig = infer_signature(input_scheme, output_scheme)
-
-        mlflow.pytorch.log_model(
-            model,
-            artifact_path="mlruns/models",
-            signature=sig,
-            registered_model_name="tracking-quickstart",
-        )
+    mlflow.pytorch.log_model(
+        model,
+        artifact_path="mlruns/models",
+        registered_model_name="tracking-quickstart",
+    )
