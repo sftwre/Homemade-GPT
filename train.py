@@ -1,3 +1,5 @@
+import mlflow
+from mlflow.models import infer_signature
 import torch
 import time
 import tiktoken
@@ -5,50 +7,64 @@ from functools import partial
 from data import InstructionDataset, custom_collate_fn, format_input
 from torch.utils.data import DataLoader
 from transformer import GPTModel
-from utils import load_weights_into_gpt, download_and_load_gpt2, load_dataset, text_to_token_ids, token_ids_to_text
+from utils import (
+    load_weights_into_gpt,
+    download_and_load_gpt2,
+    load_dataset,
+    text_to_token_ids,
+    token_ids_to_text,
+)
 
 
+def train(
+    model,
+    train_loader,
+    val_loader,
+    optimizer,
+    device,
+    num_epochs,
+    eval_freq,
+    eval_iter,
+    start_context,
+    tokenizer,
+):
+    train_losses, val_losses, track_tokens_seen = {}, {}, []
+    tokens_seen, global_step = 0, -1
 
-def train(model, train_loader, val_loader,
-                       optimizer, device, num_epochs,
-                       eval_freq, eval_iter, start_context,
-                       tokenizer):
-        train_losses, val_losses, track_tokens_seen = [], [], []
-        tokens_seen, global_step = 0, -1
-        
-        for epoch in range(num_epochs):
-            model.train()
-            for input_batch, target_batch in train_loader:
-                optimizer.zero_grad()
-                loss = batch_loss(input_batch, target_batch, model, device)
-                loss.backward()
-                optimizer.step()
-                tokens_seen += input_batch.numel()
-                global_step += 1
-                
-                if global_step % eval_freq == 0:
-                    train_loss, val_loss = evaluate(model, train_loader, val_loader, device, eval_iter)
-                    train_losses.append(train_loss)
-                    val_losses.append(val_loss)
-                    track_tokens_seen.append(tokens_seen)
-                    print(f"Ep {epoch+1} (Step {global_step:06d}): "
-                          f"Train loss {train_loss:.3f}, "
-                          f"Val loss {val_loss:.3f}"
-                         )
-            print_tokens(model, tokenizer, device, start_context)
-        return train_losses, val_losses, track_tokens_seen
-    
+    for epoch in range(num_epochs):
+        model.train()
+        for input_batch, target_batch in train_loader:
+            optimizer.zero_grad()
+            loss = batch_loss(input_batch, target_batch, model, device)
+            loss.backward()
+            optimizer.step()
+            tokens_seen += input_batch.numel()
+            global_step += 1
+
+            if global_step % eval_freq == 0:
+                train_loss, val_loss = evaluate(
+                    model, train_loader, val_loader, device, eval_iter
+                )
+                train_losses[f"Iteration_{global_step}_Epoch_{epoch}"] = train_loss
+                val_losses[f"Iteration_{global_step}_Epoch_{epoch}"] = val_loss
+                track_tokens_seen.append(tokens_seen)
+                print(
+                    f"Ep {epoch+1} (Step {global_step:06d}): "
+                    f"Train loss {train_loss:.3f}, "
+                    f"Val loss {val_loss:.3f}"
+                )
+        print_tokens(model, tokenizer, device, start_context)
+    return train_losses, val_losses, track_tokens_seen
+
+
 def evaluate(model, train_loader, val_loader, device, eval_iter):
     model.eval()
     with torch.no_grad():
-        train_loss = epoch_loss(
-            train_loader, model, device, num_batches=eval_iter
-        )
-        val_loss = epoch_loss(
-            val_loader, model, device, num_batches=eval_iter
-        )
+        train_loss = epoch_loss(train_loader, model, device, num_batches=eval_iter)
+        val_loss = epoch_loss(val_loader, model, device, num_batches=eval_iter)
     model.train()
     return train_loss, val_loss
+
 
 def print_tokens(model, tokenizer, device, start_context):
     model.eval()
@@ -56,12 +72,12 @@ def print_tokens(model, tokenizer, device, start_context):
     encoded = text_to_token_ids(start_context, tokenizer).to(device)
     with torch.no_grad():
         token_ids = generate_tokens(
-            model=model, idx=encoded,
-            max_new_tokens=50, context_size=context_size
+            model=model, idx=encoded, max_new_tokens=50, context_size=context_size
         )
         decoded_text = token_ids_to_text(token_ids, tokenizer)
         print(decoded_text.replace("\n", " "))  # Compact print format
     model.train()
+
 
 def generate_tokens(model, idx, max_new_tokens, context_size, temperature=1):
 
@@ -83,12 +99,14 @@ def batch_loss(input_batch, target_batch, model, device):
     input_batch = input_batch.to(device)
     target_batch = target_batch.to(device)
     logits = model(input_batch)
-    loss = torch.nn.functional.cross_entropy(logits.flatten(0, 1), target_batch.flatten())
+    loss = torch.nn.functional.cross_entropy(
+        logits.flatten(0, 1), target_batch.flatten()
+    )
     return loss
 
 
 def epoch_loss(data_loader, model, device, num_batches=None):
-    total_loss = 0.
+    total_loss = 0.0
     if len(data_loader) == 0:
         return float("nan")
     elif num_batches is None:
@@ -97,9 +115,7 @@ def epoch_loss(data_loader, model, device, num_batches=None):
         num_batches = min(num_batches, len(data_loader))
     for i, (input_batch, target_batch) in enumerate(data_loader):
         if i < num_batches:
-            loss = batch_loss(
-                input_batch, target_batch, model, device
-            )
+            loss = batch_loss(input_batch, target_batch, model, device)
             total_loss += loss.item()
         else:
             break
@@ -107,84 +123,88 @@ def epoch_loss(data_loader, model, device, num_batches=None):
 
 
 if __name__ == "__main__":
-    
+
     """
     Experiment level config
     """
-    num_workers = 0
-    batch_size = 8
-
     BASE_CONFIG = {
-        "vocab_size": 50257,     # Vocabulary size
-        "ctx_len": 1024,         # Context length
-        "drop_rate": 0.0,        # Dropout rate
-        "qkv_bias": True,        # Query-key-value bias
+        "vocab_size": 50257,  # Vocabulary size
+        "ctx_len": 1024,  # Context length
+        "drop_rate": 0.0,  # Dropout rate
+        "qkv_bias": True,  # Query-key-value bias
         "emb_dim": 1024,
         "n_layers": 24,
-        "n_heads":16
+        "n_heads": 16,
     }
-    
+
+    exp_params = {"num_workers": 0, "batch_size": 8, "num_epochs": 2}
+    exp_params.update(BASE_CONFIG)
+
     # set seed
     torch.manual_seed(123)
 
-    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
     """
     Load train/val datasets
     """
 
-    data = load_dataset(file_path='./data/instruction-data.json')
+    data = load_dataset(file_path="./data/instruction-data.json")
 
     train_portion = int(len(data) * 0.85)  # 85% for training
-    test_portion = int(len(data) * 0.1)   # 10% for testing
-    val_portion = len(data) - train_portion - test_portion  # Remaining 5% for validation
-    
+    test_portion = int(len(data) * 0.1)  # 10% for testing
+    val_portion = (
+        len(data) - train_portion - test_portion
+    )  # Remaining 5% for validation
+
     train_data = data[:train_portion]
-    test_data = data[train_portion:train_portion + test_portion]
-    val_data = data[train_portion + test_portion:]
-    
+    test_data = data[train_portion : train_portion + test_portion]
+    val_data = data[train_portion + test_portion :]
+
     print("Training set length:", len(train_data))
     print("Validation set length:", len(val_data))
     print("Test set length:", len(test_data))
 
-    tokenizer = tiktoken.get_encoding('gpt2')
-    customized_collate_fn = partial(custom_collate_fn, device=device, allowed_max_length=1024)
-    
+    tokenizer = tiktoken.get_encoding("gpt2")
+    customized_collate_fn = partial(
+        custom_collate_fn, device=device, allowed_max_length=1024
+    )
+
     train_dataset = InstructionDataset(train_data, tokenizer)
     train_loader = DataLoader(
         train_dataset,
-        batch_size=batch_size,
+        batch_size=exp_params["batch_size"],
         collate_fn=customized_collate_fn,
         shuffle=True,
         drop_last=True,
-        num_workers=num_workers
+        num_workers=exp_params["num_workers"],
     )
-    
+
     val_dataset = InstructionDataset(val_data, tokenizer)
     val_loader = DataLoader(
         val_dataset,
-        batch_size=batch_size,
+        batch_size=exp_params["batch_size"],
         collate_fn=customized_collate_fn,
         shuffle=False,
         drop_last=False,
-        num_workers=num_workers
+        num_workers=exp_params["num_workers"],
     )
-    
+
     test_dataset = InstructionDataset(test_data, tokenizer)
     test_loader = DataLoader(
         test_dataset,
-        batch_size=batch_size,
+        batch_size=exp_params["batch_size"],
         collate_fn=customized_collate_fn,
         shuffle=False,
         drop_last=False,
-        num_workers=num_workers
+        num_workers=exp_params["num_workers"],
     )
 
     """
     Model init
     """
     settings, params = download_and_load_gpt2(model_size="355M", models_dir="gpt2")
-    
+
     model = GPTModel(BASE_CONFIG)
     load_weights_into_gpt(model, params)
 
@@ -193,14 +213,53 @@ if __name__ == "__main__":
     start_time = time.time()
     torch.manual_seed(123)
     optimizer = torch.optim.AdamW(model.parameters(), lr=0.00005, weight_decay=0.1)
-    num_epochs = 2
-    
+
     train_losses, val_losses, tokens_seen = train(
-        model, train_loader, val_loader, optimizer, device,
-        num_epochs=num_epochs, eval_freq=5, eval_iter=5,
-        start_context=format_input(val_data[0]), tokenizer=tokenizer
+        model,
+        train_loader,
+        val_loader,
+        optimizer,
+        device,
+        num_epochs=exp_params["num_epochs"],
+        eval_freq=5,
+        eval_iter=5,
+        start_context=format_input(val_data[0]),
+        tokenizer=tokenizer,
     )
-    
+
     end_time = time.time()
     execution_time_minutes = (end_time - start_time) / 60
     print(f"Training completed in {execution_time_minutes:.2f} minutes.")
+
+    """
+    MLflow logging
+    """
+    mlflow.set_tracking_uri("http://127.0.0.1:8080")
+    mlflow.set_experiment("Instruction fine-tuning")
+
+    with mlflow.start_run():
+
+        mlflow.log_params(exp_params)
+        mlflow.log_metrics(train_losses)
+        mlflow.log_metrics(val_losses)
+        mlflow.set_tag("Training info", "Alpaca instruction dataset (small)")
+
+        input_scheme = train_dataset[0].numpy()
+        output_scheme = (
+            generate_tokens(
+                model=model,
+                idx=torch.Tensor(input_scheme).to(device),
+                max_new_tokens=50,
+                context_size=BASE_CONFIG["ctx_len"],
+            )
+            .to("cpu")
+            .numpy()
+        )
+        sig = infer_signature(input_scheme, output_scheme)
+
+        mlflow.pytorch.log_model(
+            model,
+            artifact_path="mlruns/models",
+            signature=sig,
+            registered_model_name="tracking-quickstart",
+        )
