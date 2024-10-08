@@ -15,6 +15,7 @@ from utils import (
     token_ids_to_text,
 )
 from typing import List
+from argparse import ArgumentParser
 
 
 def train(
@@ -51,9 +52,9 @@ def train(
                 val_losses.append(val_loss)
                 track_tokens_seen.append(tokens_seen)
 
-                # mlflow logging
-                mlflow.log_metric("Train_loss", train_loss, global_step)
-                mlflow.log_metric("Val_loss", val_loss, global_step)
+                # metric logging
+                writer.add_scalar("Loss/train", train_loss, global_step)
+                writer.add_scalar("Loss/val", val_loss, global_step)
 
                 print(
                     f"Ep {epoch+1} (Step {global_step:06d}): "
@@ -131,6 +132,15 @@ def epoch_loss(data_loader, model, device, num_batches=None):
 
 if __name__ == "__main__":
 
+    parser = ArgumentParser()
+    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--num_epochs", type=int, default=2)
+    parser.add_argument("--num_workers", type=int, default=0)
+    parser.add_argument(
+        "--dataset_path", type=str, required=True, help="Absolute path to dataset"
+    )
+    args = parser.parse_args()
+
     """
     Experiment level config
     """
@@ -144,7 +154,11 @@ if __name__ == "__main__":
         "n_heads": 16,
     }
 
-    exp_params = {"num_workers": 0, "batch_size": 8, "num_epochs": 2}
+    exp_params = {
+        "num_workers": args.num_workers,
+        "batch_size": args.batch_size,
+        "num_epochs": args.num_epochs,
+    }
     exp_params.update(BASE_CONFIG)
 
     # set seed
@@ -156,7 +170,7 @@ if __name__ == "__main__":
     Load train/val datasets
     """
 
-    data = load_dataset(file_path="./data/instruction-data.json")
+    data = load_dataset(file_path=args.dataset_path)
 
     train_portion = int(len(data) * 0.85)  # 85% for training
     test_portion = int(len(data) * 0.1)  # 10% for testing
