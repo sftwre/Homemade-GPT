@@ -5,3 +5,4 @@ __pycache__/
 /mlruns
 /mlartifacts
 /runs
+.vscode
