@@ -61,7 +61,13 @@ def train(
                     f"Train loss {train_loss:.3f}, "
                     f"Val loss {val_loss:.3f}"
                 )
-        print_tokens(model, tokenizer, device, start_context)
+        # TODO: randomly sample instructions from the val set and evaluate the model.
+        instruction = format_input(val_data[0])
+        response = generate_response(
+            model, instruction=instruction, tokenizer=tokenizer
+        )
+        writer.add_text("Model response", response, epoch)
+
     return train_losses, val_losses, track_tokens_seen
 
 
@@ -74,20 +80,11 @@ def evaluate(model, train_loader, val_loader, device, eval_iter):
     return train_loss, val_loss
 
 
-def print_tokens(model, tokenizer, device, start_context):
+def generate_response(model, instruction, tokenizer, max_new_tokens=50, temperature=1):
+
     model.eval()
     context_size = model.pos_emb.weight.shape[0]
-    encoded = text_to_token_ids(start_context, tokenizer).to(device)
-    with torch.no_grad():
-        token_ids = generate_tokens(
-            model=model, idx=encoded, max_new_tokens=50, context_size=context_size
-        )
-        decoded_text = token_ids_to_text(token_ids, tokenizer)
-        print(decoded_text.replace("\n", " "))  # Compact print format
-    model.train()
-
-
-def generate_tokens(model, idx, max_new_tokens, context_size, temperature=1):
+    idx = text_to_token_ids(instruction, tokenizer).to(device)
 
     for _ in range(max_new_tokens):
         idx_cond = idx[:, -context_size:]
@@ -100,7 +97,11 @@ def generate_tokens(model, idx, max_new_tokens, context_size, temperature=1):
         probas = torch.softmax(scaled_logits, dim=-1)
         idx_next = torch.multinomial(probas, num_samples=1)
         idx = torch.cat((idx, idx_next), dim=1)
-    return idx
+
+    decoded_text = token_ids_to_text(idx, tokenizer)
+    model.train()
+
+    return decoded_text
 
 
 def batch_loss(input_batch, target_batch, model, device):
