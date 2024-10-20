@@ -1,6 +1,6 @@
 import mlflow
-from mlflow.models import infer_signature
 import torch
+from torch.utils.tensorboard import SummaryWriter
 import time
 import tiktoken
 from functools import partial
@@ -27,8 +27,8 @@ def train(
     num_epochs: int,
     eval_freq: int,
     eval_iter: int,
-    start_context: str,
     tokenizer,
+    writer: SummaryWriter,
 ) -> (List[float], List[float], List[float]):
 
     train_losses, val_losses, track_tokens_seen = [], [], []
@@ -189,7 +189,7 @@ if __name__ == "__main__":
 
     tokenizer = tiktoken.get_encoding("gpt2")
     customized_collate_fn = partial(
-        custom_collate_fn, device=device, allowed_max_length=1024
+        custom_collate_fn, device=device, allowed_max_length=512
     )
 
     train_dataset = InstructionDataset(train_data, tokenizer)
@@ -233,37 +233,40 @@ if __name__ == "__main__":
     model.to(device)
 
     start_time = time.time()
-    torch.manual_seed(123)
     optimizer = torch.optim.AdamW(model.parameters(), lr=0.00005, weight_decay=0.1)
 
-    train_losses, val_losses, tokens_seen = train(
-        model,
-        train_loader,
-        val_loader,
-        optimizer,
-        device,
-        num_epochs=exp_params["num_epochs"],
-        eval_freq=5,
-        eval_iter=5,
-        start_context=format_input(val_data[0]),
-        tokenizer=tokenizer,
-    )
-
-    end_time = time.time()
-    execution_time_minutes = (end_time - start_time) / 60
-    print(f"Training completed in {execution_time_minutes:.2f} minutes.")
-
     """
-    MLflow logging
+    Training
     """
-    mlflow.set_tracking_uri("http://127.0.0.1:8080")
-    mlflow.set_experiment("Instruction fine-tuning")
+    with mlflow.start_run() as run:
 
-    mlflow.log_params(exp_params)
-    mlflow.set_tag("Training info", "Alpaca instruction dataset (small)")
+        writer = SummaryWriter(log_dir=f"./runs/{run.info.run_name}")
 
-    mlflow.pytorch.log_model(
-        model,
-        artifact_path="mlruns/models",
-        registered_model_name="tracking-quickstart",
-    )
+        train_losses, val_losses, tokens_seen = train(
+            model,
+            train_loader,
+            test_loader,
+            optimizer,
+            device,
+            num_epochs=exp_params["num_epochs"],
+            eval_freq=5,
+            eval_iter=5,
+            tokenizer=tokenizer,
+            writer=writer,
+        )
+
+        end_time = time.time()
+        execution_time_minutes = (end_time - start_time) / 60
+        print(f"Training completed in {execution_time_minutes:.2f} minutes.")
+
+        mlflow.set_tracking_uri("http://127.0.0.1:8080")
+        mlflow.set_experiment("Instruction fine-tuning")
+
+        mlflow.log_params(exp_params)
+        mlflow.set_tag("Training time", f"{execution_time_minutes:.2f} mins")
+
+        mlflow.pytorch.log_model(
+            model,
+            artifact_path="mlruns/models",
+            registered_model_name=f"gpt_alpaca",
+        )
