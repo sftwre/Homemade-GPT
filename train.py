@@ -29,6 +29,7 @@ def train(
     eval_iter: int,
     tokenizer,
     writer: SummaryWriter,
+    eval_samples=3,
 ) -> (List[float], List[float], List[float]):
 
     train_losses, val_losses, track_tokens_seen = [], [], []
@@ -61,12 +62,13 @@ def train(
                     f"Train loss {train_loss:.3f}, "
                     f"Val loss {val_loss:.3f}"
                 )
-        # TODO: randomly sample instructions from the val set and evaluate the model.
-        instruction = format_input(val_data[0])
-        response = generate_response(
-            model, instruction=instruction, tokenizer=tokenizer
-        )
-        writer.add_text("Model response", response, epoch)
+        # eval model on first eval_samples instructions
+        for i in range(eval_samples):
+            instruction = format_input(val_data[i])
+            response = generate_response(
+                model, instruction=instruction, tokenizer=tokenizer
+            )
+            writer.add_text(f"Model response [{i+1}]", response, epoch)
 
     return train_losses, val_losses, track_tokens_seen
 
