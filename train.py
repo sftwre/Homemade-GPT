@@ -1,5 +1,11 @@
 import mlflow
 import torch
+from torch.optim.lr_scheduler import (
+    LRScheduler,
+    LinearLR,
+    CosineAnnealingLR,
+    SequentialLR,
+)
 from torch.utils.tensorboard import SummaryWriter
 import time
 import tiktoken
@@ -23,6 +29,7 @@ def train(
     train_loader: DataLoader,
     val_loader: DataLoader,
     optimizer: torch.optim.Optimizer,
+    scheduler: LRScheduler | None,
     device: str,
     num_epochs: int,
     eval_freq: int,
@@ -41,9 +48,14 @@ def train(
             optimizer.zero_grad()
             loss = batch_loss(input_batch, target_batch, model, device)
             loss.backward()
-            optimizer.step()
+
+            # update lr scheduler if present
+            if scheduler is not None:
+                scheduler.step()
+
             tokens_seen += input_batch.numel()
             global_step += 1
+            optimizer.step()
 
             if global_step % eval_freq == 0:
                 train_loss, val_loss = evaluate(
@@ -56,6 +68,9 @@ def train(
                 # metric logging
                 writer.add_scalar("Loss/train", train_loss, global_step)
                 writer.add_scalar("Loss/val", val_loss, global_step)
+                writer.add_scalar(
+                    "LR Scheduler", scheduler.get_last_lr()[0], global_step
+                )
 
                 print(
                     f"Ep {epoch+1} (Step {global_step:06d}): "
@@ -142,6 +157,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dataset_path", type=str, required=True, help="Absolute path to dataset"
     )
+    parser.add_argument("--lr", type=float, default=5e-4, help="learning rate")
+    parser.add_argument(
+        "--lr_scheduler",
+        type=str,
+        choices=["linear", "cosine", "none"],
+        default="linear",
+        help="Type of learning rate scheduler to use",
     args = parser.parse_args()
 
     """
@@ -161,6 +183,9 @@ if __name__ == "__main__":
         "num_workers": args.num_workers,
         "batch_size": args.batch_size,
         "num_epochs": args.num_epochs,
+        "lr": args.lr,
+        "lr_scheduler": args.lr_scheduler,
+        "bells_whistles": "gradient_clipping" if args.grad_clip else "",
     }
     exp_params.update(BASE_CONFIG)
 
@@ -235,7 +260,25 @@ if __name__ == "__main__":
     model.to(device)
 
     start_time = time.time()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.00005, weight_decay=0.1)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.1)
+
+    # select learning rate scheduler
+    scheduler = None
+
+    if args.lr_scheduler == "linear":
+        scheduler = LinearLR(
+            optimizer, start_factor=0.1, end_factor=1.0, total_iters=45
+        )
+    elif args.lr_scheduler == "cosine":
+        linear_warmup = LinearLR(
+            optimizer, start_factor=0.1, end_factor=1.0, total_iters=45
+        )
+        cosine_scheduler = CosineAnnealingLR(
+            optimizer, T_max=185, eta_min=args.lr * 0.1
+        )
+        scheduler = SequentialLR(
+            optimizer, schedulers=[linear_warmup, cosine_scheduler], milestones=[45]
+        )
 
     """
     Training
@@ -249,6 +292,7 @@ if __name__ == "__main__":
             train_loader,
             test_loader,
             optimizer,
+            scheduler,
             device,
             num_epochs=exp_params["num_epochs"],
             eval_freq=5,
