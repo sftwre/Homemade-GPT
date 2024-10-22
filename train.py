@@ -283,6 +283,8 @@ if __name__ == "__main__":
     """
     Training
     """
+    mlflow.set_experiment("Instruction fine-tuning")
+
     with mlflow.start_run() as run:
 
         writer = SummaryWriter(log_dir=f"./runs/{run.info.run_name}")
@@ -306,7 +308,6 @@ if __name__ == "__main__":
         print(f"Training completed in {execution_time_minutes:.2f} minutes.")
 
         mlflow.set_tracking_uri("http://127.0.0.1:8080")
-        mlflow.set_experiment("Instruction fine-tuning")
 
         mlflow.log_params(exp_params)
         mlflow.set_tag("Training time", f"{execution_time_minutes:.2f} mins")
