@@ -26,6 +26,7 @@ from tqdm import tqdm
 from eval import score_response, get_stats
 
 
+# TODO: refactor function to only define necessary params, the rest can be passed through kwargs
 def train(
     model,
     train_loader: DataLoader,
@@ -165,6 +166,7 @@ def epoch_loss(data_loader, model, device, num_batches=None):
 
 if __name__ == "__main__":
 
+    # TODO: create experiments dirs in tensorboard to seperate out graphs
     parser = ArgumentParser()
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--num_epochs", type=int, default=2)
@@ -224,7 +226,7 @@ if __name__ == "__main__":
     """
     Load train/val datasets
     """
-
+    # TODO: load dataset from huggingface
     data = load_dataset(file_path=args.dataset_path)
 
     train_portion = int(len(data) * 0.85)  # 85% for training
@@ -277,6 +279,7 @@ if __name__ == "__main__":
 
     model.to(device)
 
+    # TODO: use early stopping with model checkpointing
     start_time = time.time()
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.1)
     exp_params["optimizer"] = type(optimizer)
@@ -333,12 +336,15 @@ if __name__ == "__main__":
 
         mlflow.log_params(exp_params)
         mlflow.set_tag("Training time", f"{execution_time_minutes:.2f} mins")
+        # TODO: only checkpoint models that have outperformed previous models
+        # mlflow.pytorch.log_model(
+        #     model,
+        #     artifact_path="mlruns/models",
+        #     registered_model_name=f"{args.model_name}",
+        # )
+        # TODO: Use mlflow api to automatically remove unsuccesful runs or experiments that terminate early
+        # TODO: name model by parameter count
 
-        mlflow.pytorch.log_model(
-            model,
-            artifact_path="mlruns/models",
-            registered_model_name=f"gpt_alpaca",
-        )
         """
         Evaluate model on validation set using Llama3
         """
