@@ -166,7 +166,6 @@ def epoch_loss(data_loader, model, device, num_batches=None):
 
 if __name__ == "__main__":
 
-    # TODO: create experiments dirs in tensorboard to seperate out graphs
     parser = ArgumentParser()
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--num_epochs", type=int, default=2)
