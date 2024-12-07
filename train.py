@@ -279,6 +279,7 @@ if __name__ == "__main__":
 
     start_time = time.time()
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.1)
+    exp_params["optimizer"] = type(optimizer)
 
     # select learning rate scheduler
     scheduler = None
