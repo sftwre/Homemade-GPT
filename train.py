@@ -37,6 +37,7 @@ def train(
     tokenizer,
     writer: SummaryWriter,
     eval_samples=3,
+    warmup_steps=0,
 ) -> (List[float], List[float], List[float]):
 
     train_losses, val_losses, track_tokens_seen = [], [], []
@@ -55,6 +56,10 @@ def train(
 
             tokens_seen += input_batch.numel()
             global_step += 1
+
+            if warmup_steps > 0 and global_step > warmup_steps:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
             optimizer.step()
 
             if global_step % eval_freq == 0:
@@ -68,9 +73,11 @@ def train(
                 # metric logging
                 writer.add_scalar("Loss/train", train_loss, global_step)
                 writer.add_scalar("Loss/val", val_loss, global_step)
-                writer.add_scalar(
-                    "LR Scheduler", scheduler.get_last_lr()[0], global_step
-                )
+
+                if scheduler is not None:
+                    writer.add_scalar(
+                        "LR Scheduler", scheduler.get_last_lr()[0], global_step
+                    )
 
                 print(
                     f"Ep {epoch+1} (Step {global_step:06d}): "
@@ -162,8 +169,10 @@ if __name__ == "__main__":
         "--lr_scheduler",
         type=str,
         choices=["linear", "cosine", "none"],
-        default="linear",
+        default="none",
         help="Type of learning rate scheduler to use",
+    )
+    parser.add_argument("--warmup_steps", action="store_true", default=False)
     args = parser.parse_args()
 
     """
@@ -209,7 +218,12 @@ if __name__ == "__main__":
     train_data = data[:train_portion]
     test_data = data[train_portion : train_portion + test_portion]
     val_data = data[train_portion + test_portion :]
+    # Use 20% of training iterations as warmup
+    warmup_steps = 0
+    if args.warmup_steps:
+        warmup_steps = int((len(train_data) * args.num_epochs / args.batch_size) * 0.2)
 
+    print(f"Warmup steps: {warmup_steps}")
     print("Training set length:", len(train_data))
     print("Validation set length:", len(val_data))
     print("Test set length:", len(test_data))
@@ -267,17 +281,19 @@ if __name__ == "__main__":
 
     if args.lr_scheduler == "linear":
         scheduler = LinearLR(
-            optimizer, start_factor=0.1, end_factor=1.0, total_iters=45
+            optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_steps
         )
     elif args.lr_scheduler == "cosine":
         linear_warmup = LinearLR(
-            optimizer, start_factor=0.1, end_factor=1.0, total_iters=45
+            optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_steps
         )
         cosine_scheduler = CosineAnnealingLR(
             optimizer, T_max=185, eta_min=args.lr * 0.1
         )
         scheduler = SequentialLR(
-            optimizer, schedulers=[linear_warmup, cosine_scheduler], milestones=[45]
+            optimizer,
+            schedulers=[linear_warmup, cosine_scheduler],
+            milestones=[warmup_steps],
         )
 
     """
@@ -301,6 +317,7 @@ if __name__ == "__main__":
             eval_iter=5,
             tokenizer=tokenizer,
             writer=writer,
+            warmup_steps=warmup_steps,
         )
 
         end_time = time.time()
