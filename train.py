@@ -22,6 +22,8 @@ from utils import (
 )
 from typing import List
 from argparse import ArgumentParser
+from tqdm import tqdm
+from eval import score_response, get_stats
 
 
 def train(
@@ -227,13 +229,10 @@ if __name__ == "__main__":
 
     train_portion = int(len(data) * 0.85)  # 85% for training
     test_portion = int(len(data) * 0.1)  # 10% for testing
-    val_portion = (
-        len(data) - train_portion - test_portion
-    )  # Remaining 5% for validation
 
     train_data = data[:train_portion]
     test_data = data[train_portion : train_portion + test_portion]
-    val_data = data[train_portion + test_portion :]
+
     # Use 20% of training iterations as warmup
     warmup_steps = 0
     if args.warmup_steps:
@@ -241,7 +240,6 @@ if __name__ == "__main__":
 
     print(f"Warmup steps: {warmup_steps}")
     print("Training set length:", len(train_data))
-    print("Validation set length:", len(val_data))
     print("Test set length:", len(test_data))
 
     tokenizer = tiktoken.get_encoding("gpt2")
@@ -256,16 +254,6 @@ if __name__ == "__main__":
         collate_fn=customized_collate_fn,
         shuffle=True,
         drop_last=True,
-        num_workers=exp_params["num_workers"],
-    )
-
-    val_dataset = InstructionDataset(val_data, tokenizer)
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=exp_params["batch_size"],
-        collate_fn=customized_collate_fn,
-        shuffle=False,
-        drop_last=False,
         num_workers=exp_params["num_workers"],
     )
 
@@ -350,3 +338,31 @@ if __name__ == "__main__":
             artifact_path="mlruns/models",
             registered_model_name=f"gpt_alpaca",
         )
+        """
+        Evaluate model on test set using Llama3.2:1b
+        """
+        val_data = data[train_portion + test_portion :]
+        scores = []
+
+        for i, entry in tqdm(enumerate(val_data), total=len(val_data)):
+            instruction = format_input(entry)
+
+            response = generate_response(
+                model, instruction=instruction, tokenizer=tokenizer
+            )
+            response = response[len(instruction) :].replace("### Response:", "").strip()
+            val_data[i]["model_response"] = response
+
+            score = score_response(entry)
+            scores.append(score)
+
+        stats = get_stats(scores)
+
+        # log metrics with MLFlow
+        for k, v in stats.items():
+
+            if k not in ["hist", "bins"]:
+                mlflow.log_metric(key=k, value=v)
+            elif k == "hist":
+                for value, step in zip(stats["hist"], stats["bins"]):
+                    mlflow.log_metric("Density hist.", value * 100, step=step)
