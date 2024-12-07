@@ -168,7 +168,10 @@ if __name__ == "__main__":
     parser.add_argument("--num_epochs", type=int, default=2)
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument(
-        "--dataset_path", type=str, required=True, help="Absolute path to dataset"
+        "--dataset_path",
+        type=str,
+        default="./data/instruction-data-small.json",
+        help="Absolute path to dataset",
     )
     parser.add_argument("--lr", type=float, default=5e-4, help="learning rate")
     parser.add_argument(
@@ -179,6 +182,13 @@ if __name__ == "__main__":
         help="Type of learning rate scheduler to use",
     )
     parser.add_argument("--warmup_steps", action="store_true", default=False)
+    parser.add_argument(
+        "--model_name",
+        type=str,
+        default="gpt_alpaca_small",
+        help="Name used to identify model.",
+    )
+    parser.add_argument("--grad_clip", action="store_true", default=False)
     args = parser.parse_args()
 
     """
