@@ -340,7 +340,7 @@ if __name__ == "__main__":
             registered_model_name=f"gpt_alpaca",
         )
         """
-        Evaluate model on test set using Llama3.2:1b
+        Evaluate model on validation set using Llama3
         """
         val_data = data[train_portion + test_portion :]
         scores = []
