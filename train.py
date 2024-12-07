@@ -104,7 +104,10 @@ def evaluate(model, train_loader, val_loader, device, eval_iter):
     return train_loss, val_loss
 
 
-def generate_response(model, instruction, tokenizer, max_new_tokens=50, temperature=1):
+# TODO: modify temp scaling and add top-k sampling
+def generate_response(
+    model, instruction, tokenizer, max_new_tokens=50, temperature=1, eos_idx=50256
+):
 
     model.eval()
     context_size = model.pos_emb.weight.shape[0]
@@ -121,6 +124,9 @@ def generate_response(model, instruction, tokenizer, max_new_tokens=50, temperat
         probas = torch.softmax(scaled_logits, dim=-1)
         idx_next = torch.multinomial(probas, num_samples=1)
         idx = torch.cat((idx, idx_next), dim=1)
+
+        if idx_next == eos_idx:
+            break
 
     decoded_text = token_ids_to_text(idx, tokenizer)
     model.train()
