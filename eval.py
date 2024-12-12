@@ -55,6 +55,7 @@ def get_stats(scores: List[int]) -> dict:
     """
 
     scores = np.array(scores)
+    bins = np.arange(0, 110, 10)
     stats = {}
 
     # get summary stats
@@ -64,9 +65,15 @@ def get_stats(scores: List[int]) -> dict:
     stats["max_score"] = scores.max()
     stats["std_dev_score"] = np.std(scores)
 
-    # generate histogram
-    hist, bins = np.histogram(scores, bins=np.arange(0, 110, 10), density=True)
+    # get histogram data
+    density_hist, _ = np.histogram(scores, bins=bins, density=True)
+    stats["density_hist"] = density_hist.tolist()
+    stats["bins"] = bins.tolist()[1:]
+
+    # compute cdf
+    hist, _ = np.histogram(scores, bins=bins)
+    cdf = np.cumsum(hist) / scores.shape[0]
+    stats["cdf"] = cdf.tolist()
     stats["hist"] = hist.tolist()
-    stats["hist"].insert(0, 0)
-    stats["bins"] = bins.tolist()
+
     return stats

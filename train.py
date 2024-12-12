@@ -192,7 +192,9 @@ if __name__ == "__main__":
         default="gpt_alpaca_small",
         help="Name used to identify model.",
     )
+    parser.add_argument("--exp_tag", type=str, default="default", help="Experiment tag")
     parser.add_argument("--grad_clip", action="store_true", default=False)
+    parser.add_argument("--save_model", action="store_true", default=False)
     args = parser.parse_args()
 
     """
@@ -324,67 +326,79 @@ if __name__ == "__main__":
     """
     mlflow.set_experiment("Instruction fine-tuning")
 
-    with mlflow.start_run() as run:
+    try:
+        with mlflow.start_run() as run:
 
-        writer = SummaryWriter(log_dir=f"./runs/{run.info.run_name}")
+            writer = SummaryWriter(log_dir=f"./runs/{run.info.run_name}")
 
-        train_losses, val_losses, tokens_seen = train(
-            model,
-            train_loader,
-            test_loader,
-            optimizer,
-            scheduler,
-            device,
-            num_epochs=exp_params["num_epochs"],
-            eval_freq=5,
-            eval_iter=5,
-            tokenizer=tokenizer,
-            writer=writer,
-            warmup_steps=warmup_steps,
-        )
-
-        end_time = time.time()
-        execution_time_minutes = (end_time - start_time) / 60
-        print(f"Training completed in {execution_time_minutes:.2f} minutes.")
-
-        mlflow.set_tracking_uri("http://127.0.0.1:8080")
-
-        mlflow.log_params(exp_params)
-        mlflow.set_tag("Training time", f"{execution_time_minutes:.2f} mins")
-        # TODO: only checkpoint models that have outperformed previous models
-        # mlflow.pytorch.log_model(
-        #     model,
-        #     artifact_path="mlruns/models",
-        #     registered_model_name=f"{args.model_name}",
-        # )
-        # TODO: Use mlflow api to automatically remove unsuccesful runs or experiments that terminate early
-        # TODO: name model by parameter count
-
-        """
-        Evaluate model on validation set using Llama3
-        """
-        val_data = data[train_portion + test_portion :]
-        scores = []
-
-        for i, entry in tqdm(enumerate(val_data), total=len(val_data)):
-            instruction = format_input(entry)
-
-            response = generate_response(
-                model, instruction=instruction, tokenizer=tokenizer
+            train_losses, val_losses, tokens_seen = train(
+                model,
+                train_loader,
+                test_loader,
+                optimizer,
+                scheduler,
+                device,
+                num_epochs=exp_params["num_epochs"],
+                eval_freq=5,
+                eval_iter=5,
+                tokenizer=tokenizer,
+                writer=writer,
+                warmup_steps=warmup_steps,
             )
-            response = response[len(instruction) :].replace("### Response:", "").strip()
-            val_data[i]["model_response"] = response
 
-            score = score_response(entry)
-            scores.append(score)
+            end_time = time.time()
+            execution_time_minutes = (end_time - start_time) / 60
+            print(f"Training completed in {execution_time_minutes:.2f} minutes.")
 
-        stats = get_stats(scores)
+            mlflow.set_tracking_uri("http://127.0.0.1:8080")
 
-        # log metrics with MLFlow
-        for k, v in stats.items():
+            mlflow.log_params(exp_params)
+            mlflow.set_tag("Training time", f"{execution_time_minutes:.2f} mins")
+            # TODO: combine params like warm_steps and grad_clip to create tag name
+            mlflow.set_tag("Experiment", args.exp_tag)
 
-            if k not in ["hist", "bins"]:
-                mlflow.log_metric(key=k, value=v)
-            elif k == "hist":
-                for value, step in zip(stats["hist"], stats["bins"]):
-                    mlflow.log_metric("Density hist.", value * 100, step=step)
+            # TODO: only checkpoint models that have outperformed previous models
+            if args.save_model:
+                mlflow.pytorch.log_model(
+                    model,
+                    artifact_path="mlruns/models",
+                    registered_model_name=f"{args.model_name}",
+                )
+
+            """
+            Evaluate model on validation set using Llama3
+            """
+            val_data = data[train_portion + test_portion :]
+            scores = []
+
+            for i, entry in tqdm(enumerate(val_data), total=len(val_data)):
+                instruction = format_input(entry)
+
+                response = generate_response(
+                    model, instruction=instruction, tokenizer=tokenizer
+                )
+                response = (
+                    response[len(instruction) :].replace("### Response:", "").strip()
+                )
+                val_data[i]["model_response"] = response
+
+                score = score_response(entry)
+                scores.append(score)
+
+            stats = get_stats(scores)
+
+            vecs = set(["hist", "density_hist", "cdf", "bins"])
+
+            # log metrics with MLFlow
+            for k, v in stats.items():
+
+                if k not in vecs:
+                    mlflow.log_metric(key=k, value=v)
+                elif k != "bins":
+                    for value, step in zip(stats[k], stats["bins"]):
+                        value = value * 100 if k != "hist" else value
+                        mlflow.log_metric(f"{k.upper()}", value, step=step)
+
+    except Exception as e:
+        mlflow.log_param("Exception", str(e))
+        mlflow.end_run(status="FAILED")
