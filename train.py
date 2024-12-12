@@ -181,7 +181,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lr_scheduler",
         type=str,
-        choices=["linear", "cosine", "cosine_warm_restart", "none"],
+        choices=["one_cycle", "linear", "cosine", "cosine_warm_restart", "none"],
         default="none",
         help="Type of learning rate scheduler to use",
     )
@@ -319,6 +319,17 @@ if __name__ == "__main__":
             optimizer,
             schedulers=[linear_warmup, cosine_scheduler],
             milestones=[warmup_steps],
+        )
+
+    elif args.lr_scheduler == "one_cycle":
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=args.lr,
+            epochs=args.num_epochs,
+            steps_per_epoch=int(len(train_loader)),
+            pct_start=0.3,
+            anneal_strategy="cos",
+            div_factor=10,
         )
 
     """
