@@ -4,6 +4,7 @@ from torch.optim.lr_scheduler import (
     LRScheduler,
     LinearLR,
     CosineAnnealingLR,
+    CosineAnnealingWarmRestarts,
     SequentialLR,
 )
 from torch.utils.tensorboard import SummaryWriter
@@ -180,7 +181,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lr_scheduler",
         type=str,
-        choices=["linear", "cosine", "none"],
+        choices=["linear", "cosine", "cosine_warm_restart", "none"],
         default="none",
         help="Type of learning rate scheduler to use",
     )
@@ -296,6 +297,21 @@ if __name__ == "__main__":
         )
         cosine_scheduler = CosineAnnealingLR(
             optimizer, T_max=185, eta_min=args.lr * 0.1
+        )
+        scheduler = SequentialLR(
+            optimizer,
+            schedulers=[linear_warmup, cosine_scheduler],
+            milestones=[warmup_steps],
+        )
+    elif args.lr_scheduler == "cosine_warm_restart":
+        linear_warmup = LinearLR(
+            optimizer=optimizer,
+            start_factor=0.1,
+            end_factor=1.0,
+            total_iters=warmup_steps,
+        )
+        cosine_scheduler = CosineAnnealingWarmRestarts(
+            optimizer=optimizer, T_0=80, eta_min=args.lr * 0.1
         )
         scheduler = SequentialLR(
             optimizer,
