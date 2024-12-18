@@ -3,6 +3,8 @@ import torch
 from torch.optim.lr_scheduler import (
     LRScheduler,
     LinearLR,
+    OneCycleLR,
+    CyclicLR,
     CosineAnnealingLR,
     CosineAnnealingWarmRestarts,
     SequentialLR,
@@ -181,7 +183,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lr_scheduler",
         type=str,
-        choices=["one_cycle", "linear", "cosine", "cosine_warm_restart", "none"],
+        choices=[
+            "cyclic",
+            "one_cycle",
+            "linear",
+            "cosine",
+            "cosine_warm_restart",
+            "none",
+        ],
         default="none",
         help="Type of learning rate scheduler to use",
     )
@@ -322,7 +331,7 @@ if __name__ == "__main__":
         )
 
     elif args.lr_scheduler == "one_cycle":
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        scheduler = OneCycleLR(
             optimizer,
             max_lr=args.lr,
             epochs=args.num_epochs,
@@ -330,6 +339,15 @@ if __name__ == "__main__":
             pct_start=0.3,
             anneal_strategy="cos",
             div_factor=10,
+        )
+    elif args.lr_scheduler == "cyclic":
+        scheduler = CyclicLR(
+            optimizer,
+            base_lr=args.lr * 0.1,
+            max_lr=args.lr,
+            step_size_up=50,
+            mode="triangular2",
+            cycle_momentum=False,
         )
 
     """
